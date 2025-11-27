@@ -1,14 +1,16 @@
 using System;
 using UnityEngine;
 
+// Centralized alert bus
 public static class AlertBus
 {
-    // Simple alert bus
+    // Global alert event
     public static event Action<Vector2> OnAlert;
 
-    // Broadcast alert position
-    public static void Broadcast(Vector2 position)
+    // Broadcast alert ping
+    public static void Broadcast(Vector2 pos)
     {
-        OnAlert?.Invoke(position);
+        Debug.Log($"[AlertBus] Broadcast at {pos}");
+        OnAlert?.Invoke(pos);
     }
 }
