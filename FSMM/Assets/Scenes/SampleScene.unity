@@ -1506,15 +1506,15 @@ MonoBehaviour:
   - {fileID: 1672973434}
   - {fileID: 1446637967}
   - {fileID: 1448870488}
+  patrolSpeed: 2
+  eyes: {fileID: 1814899223}
   obstacleMask:
     serializedVersion: 2
     m_Bits: 144
-  eyes: {fileID: 1814899223}
-  patrolSpeed: 2
-  chaseSpeed: 2
   sightRange: 2.44
   fovDegrees: 86.5
   instantSpotRange: 1.39
+  proximitySpotRange: 1.6
   sightTick: 0.06
   soundHearRange: 3
   soundAlertLoud: 4
@@ -1523,6 +1523,7 @@ MonoBehaviour:
   suspicionThreshold: 0.15
   alertThreshold: 1
   awarenessDecay: 0.15
+  chaseSpeed: 2
   attackRange: 1.2
   attackCooldown: 0.6
   attackOnContact: 1
@@ -1531,14 +1532,12 @@ MonoBehaviour:
   inspectTimeout: 1.73
   stuckSpeedEps: 0.05
   stuckTimeMax: 0.84
-  searchRadius: 6.71
-  searchPointsCount: 10
+  searchRadiusStep: 1.8
+  searchRings: 2
+  searchSamplesPerRing: 8
   searchSpeed: 5.71
-  avoidWallsInSearch: 1
-  searchExpansionStep: 0.8
-  searchMaxExpansions: 3
+  searchTimeout: 6
   searchClearance: 0.3
-  proximitySpotRange: 1.6
   showGizmos: 1
   debugLogs: 1
 --- !u!50 &494975408
@@ -2623,23 +2622,24 @@ MonoBehaviour:
   - {fileID: 85951575}
   - {fileID: 1163102839}
   - {fileID: 1653762480}
+  patrolSpeed: 2
+  eyes: {fileID: 301426284}
   obstacleMask:
     serializedVersion: 2
     m_Bits: 144
-  eyes: {fileID: 301426284}
-  patrolSpeed: 2
-  chaseSpeed: 2.85
-  sightRange: 1.1
-  fovDegrees: 80
+  sightRange: 3.44
+  fovDegrees: 90
   instantSpotRange: 1.4
+  proximitySpotRange: 2.5
   sightTick: 0.06
-  soundHearRange: 3.68
-  soundAlertLoud: 7.5
-  smellRange: 4.5
+  soundHearRange: 3.21
+  soundAlertLoud: 1.74
+  smellRange: 3.32
   smellAlertGain: 0.25
   suspicionThreshold: 0.15
   alertThreshold: 1
   awarenessDecay: 0.15
+  chaseSpeed: 3.5
   attackRange: 1.2
   attackCooldown: 0.6
   attackOnContact: 1
@@ -2648,14 +2648,12 @@ MonoBehaviour:
   inspectTimeout: 2
   stuckSpeedEps: 0.05
   stuckTimeMax: 0.9
-  searchRadius: 2
-  searchPointsCount: 8
+  searchRadiusStep: 1.8
+  searchRings: 2
+  searchSamplesPerRing: 8
   searchSpeed: 2.2
-  avoidWallsInSearch: 1
-  searchExpansionStep: 0.8
-  searchMaxExpansions: 3
+  searchTimeout: 6
   searchClearance: 0.3
-  proximitySpotRange: 1.6
   showGizmos: 1
   debugLogs: 1
 --- !u!50 &1139872113

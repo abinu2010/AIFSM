@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 [RequireComponent(typeof(Rigidbody2D))]
@@ -5,48 +6,60 @@ public class GaurdAI : MonoBehaviour
 {
     public enum State { Patrol, Suspicion, Inspect, Alert, Assist, Search, Chase, Attack }
 
+    // Patrol config data
     public Transform[] patrolPoints;
-    public LayerMask obstacleMask;
-    public Transform eyes;
-
     public float patrolSpeed = 2.0f;
-    public float chaseSpeed = 3.5f;
 
+    // Vision config data
+    public Transform eyes;
+    public LayerMask obstacleMask;
     public float sightRange = 6.5f;
     public float fovDegrees = 90f;
     public float instantSpotRange = 0.5f;
+    public float proximitySpotRange = 2.5f;
     public float sightTick = 0.06f;
 
+    // Sound config data
     public float soundHearRange = 6.0f;
     public float soundAlertLoud = 7.0f;
 
+    // Smell config data
     public float smellRange = 3.5f;
     public float smellAlertGain = 0.25f;
 
+    // Awareness config data
     public float suspicionThreshold = 0.5f;
     public float alertThreshold = 1.0f;
     public float awarenessDecay = 0.2f;
 
+    // Combat config data
+    public float chaseSpeed = 3.5f;
     public float attackRange = 1.2f;
     public float attackCooldown = 0.6f;
     public bool attackOnContact = true;
 
+    // Arrival config data
     public float arriveSkin = 0.25f;
     public float inspectBonus = 0.25f;
 
+    // Stuck detection data
     public float inspectTimeout = 2.0f;
     public float stuckSpeedEps = 0.05f;
     public float stuckTimeMax = 0.8f;
 
-    public float searchRadius = 2.0f;
+    // Search pattern data
+    public float searchRadiusStep = 1.8f;
+    public int searchRings = 2;
+    public int searchSamplesPerRing = 8;
     public float searchSpeed = 2.2f;
+    public float searchTimeout = 6.0f;
     public float searchClearance = 0.3f;
 
-    public float proximitySpotRange = 2.5f;
-
+    // Debug settings data
     public bool showGizmos = true;
     public bool debugLogs = true;
 
+    // Internal state data
     State state;
     int patrolIndex;
     Vector2 investigatePoint;
@@ -59,27 +72,31 @@ public class GaurdAI : MonoBehaviour
     float stuckTimer;
     Vector2 lookDir = Vector2.right;
 
+    // Search internal data
     Vector2 searchCenterRaw;
     Vector2 searchCenter;
-    int searchIndex;
+    readonly List<Vector2> searchTargets = new List<Vector2>();
+    int searchTargetIndex;
 
-    float lastLogTime;
-
+    // Cached components data
     Rigidbody2D rb;
     Transform player;
+
+    // Log throttling data
+    float lastLogTime;
 
     void OnEnable()
     {
         SoundBus.OnSound += OnSoundHeard;
         AlertBus.OnAlert += OnExternalAlert;
-        Log("Subscribed events ok");
+        Log("Events subscribed okay");
     }
 
     void OnDisable()
     {
         SoundBus.OnSound -= OnSoundHeard;
         AlertBus.OnAlert -= OnExternalAlert;
-        Log("Unsubscribed events ok");
+        Log("Events unsubscribed okay");
     }
 
     void Start()
@@ -110,7 +127,7 @@ public class GaurdAI : MonoBehaviour
         }
 
         patrolIndex = 0;
-        Change(State.Patrol, "startup initialize");
+        Change(State.Patrol, "Startup patrol state");
     }
 
     void Update()
@@ -123,12 +140,10 @@ public class GaurdAI : MonoBehaviour
 
     void TickSenses()
     {
-        if (Time.time >= nextSightTick)
-        {
-            nextSightTick = Time.time + sightTick;
-            EvaluateSight();
-            EvaluateSmell();
-        }
+        if (Time.time < nextSightTick) return;
+        nextSightTick = Time.time + sightTick;
+        EvaluateSight();
+        EvaluateSmell();
     }
 
     void TickAwareness()
@@ -137,12 +152,13 @@ public class GaurdAI : MonoBehaviour
 
         if (awareness >= alertThreshold && state != State.Chase)
         {
-            Change(State.Alert, "awareness alert");
+            Change(State.Alert, "Awareness hit alert");
             AlertBus.Broadcast(transform.position);
         }
         else if (awareness >= suspicionThreshold && state == State.Patrol)
         {
-            Change(State.Suspicion, "awareness suspicion");
+            Change(State.Suspicion, "Awareness hit suspicion");
+            inspectDeadline = Time.time + inspectTimeout;
         }
     }
 
@@ -157,7 +173,7 @@ public class GaurdAI : MonoBehaviour
         if (loud >= soundAlertLoud)
         {
             lastKnownPlayer = pos;
-            Change(State.Alert, "loud alert");
+            Change(State.Alert, "Loud sound heard");
             AlertBus.Broadcast(pos);
             return;
         }
@@ -167,7 +183,7 @@ public class GaurdAI : MonoBehaviour
         stuckTimer = 0f;
         if (state == State.Patrol || state == State.Suspicion)
         {
-            Change(State.Inspect, "quiet inspect");
+            Change(State.Inspect, "Quiet sound inspect");
         }
     }
 
@@ -178,7 +194,7 @@ public class GaurdAI : MonoBehaviour
         investigatePoint = pos;
         inspectDeadline = Time.time + inspectTimeout;
         stuckTimer = 0f;
-        Change(State.Assist, "team assist");
+        Change(State.Assist, "Teammate alert assist");
     }
 
     void EvaluateSight()
@@ -196,7 +212,7 @@ public class GaurdAI : MonoBehaviour
             {
                 lastKnownPlayer = player.position;
                 awareness = alertThreshold;
-                Change(State.Chase, "proximity spot");
+                Change(State.Chase, "Proximity auto spot");
                 return;
             }
         }
@@ -208,7 +224,7 @@ public class GaurdAI : MonoBehaviour
             {
                 lastKnownPlayer = player.position;
                 awareness = alertThreshold;
-                Change(State.Chase, "instant spot");
+                Change(State.Chase, "Instant close sight");
                 return;
             }
         }
@@ -226,7 +242,7 @@ public class GaurdAI : MonoBehaviour
                     awareness = Mathf.Min(alertThreshold, awareness + 0.35f);
                     if (awareness >= alertThreshold)
                     {
-                        Change(State.Chase, "vision alert");
+                        Change(State.Chase, "Vision threshold met");
                     }
                 }
             }
@@ -250,23 +266,22 @@ public class GaurdAI : MonoBehaviour
             }
         }
 
-        if (bestNode)
+        if (!bestNode) return;
+
+        investigatePoint = bestNode.transform.position;
+        inspectDeadline = Time.time + inspectTimeout;
+        stuckTimer = 0f;
+        awareness = Mathf.Min(alertThreshold, awareness + smellAlertGain * Time.deltaTime);
+
+        if (state == State.Patrol)
         {
-            investigatePoint = bestNode.transform.position;
-            inspectDeadline = Time.time + inspectTimeout;
-            stuckTimer = 0f;
-            awareness = Mathf.Min(alertThreshold, awareness + smellAlertGain * Time.deltaTime);
+            Change(State.Suspicion, "Smell raised suspicion");
+        }
 
-            if (state == State.Patrol)
-            {
-                Change(State.Suspicion, "smell suspicion");
-            }
-
-            if (awareness >= alertThreshold && state != State.Chase)
-            {
-                Change(State.Alert, "smell alert");
-                AlertBus.Broadcast(transform.position);
-            }
+        if (awareness >= alertThreshold && state != State.Chase)
+        {
+            Change(State.Alert, "Smell raised alert");
+            AlertBus.Broadcast(transform.position);
         }
     }
 
@@ -274,30 +289,14 @@ public class GaurdAI : MonoBehaviour
     {
         switch (state)
         {
-            case State.Patrol:
-                DoPatrol();
-                break;
-            case State.Suspicion:
-                DoSuspicion();
-                break;
-            case State.Inspect:
-                DoInspect();
-                break;
-            case State.Alert:
-                DoAlert();
-                break;
-            case State.Assist:
-                DoAssist();
-                break;
-            case State.Search:
-                DoSearch();
-                break;
-            case State.Chase:
-                DoChase();
-                break;
-            case State.Attack:
-                DoAttack();
-                break;
+            case State.Patrol: DoPatrol(); break;
+            case State.Suspicion: DoSuspicion(); break;
+            case State.Inspect: DoInspect(); break;
+            case State.Alert: DoAlert(); break;
+            case State.Assist: DoAssist(); break;
+            case State.Search: DoSearch(); break;
+            case State.Chase: DoChase(); break;
+            case State.Attack: DoAttack(); break;
         }
     }
 
@@ -316,7 +315,7 @@ public class GaurdAI : MonoBehaviour
         if (patrolPoints == null || patrolPoints.Length == 0) return;
 
         Vector2 target = patrolPoints[patrolIndex].position;
-        MoveTowards(target, patrolSpeed);
+        MoveSmart(target, patrolSpeed);
 
         if (Vector2.Distance(transform.position, target) <= PatrolArrive())
         {
@@ -327,10 +326,9 @@ public class GaurdAI : MonoBehaviour
     void DoSuspicion()
     {
         rb.linearVelocity = Vector2.zero;
-
         if (Time.time >= inspectDeadline)
         {
-            Change(State.Patrol, "suspicion end");
+            Change(State.Patrol, "Suspicion timed out");
         }
     }
 
@@ -338,36 +336,23 @@ public class GaurdAI : MonoBehaviour
     {
         if (Time.time >= inspectDeadline)
         {
-            ToSearchShort("inspect end");
+            ToSearchShort("Inspect timed out");
             return;
         }
 
-        MoveTowards(investigatePoint, patrolSpeed * 1.1f);
+        MoveSmart(investigatePoint, patrolSpeed * 1.1f);
 
         if (Vector2.Distance(transform.position, investigatePoint) <= InspectArrive())
         {
             inspectDeadline = Time.time + 1.2f;
-            Change(State.Suspicion, "inspect arrived");
+            Change(State.Suspicion, "Inspect reached point");
             return;
         }
 
-        if (rb.linearVelocity.magnitude < stuckSpeedEps)
+        UpdateStuckTimer();
+        if (stuckTimer >= stuckTimeMax)
         {
-            stuckTimer += Time.deltaTime;
-        }
-        else
-        {
-            stuckTimer = 0f;
-        }
-
-        Vector2 pos = transform.position;
-        Vector2 dir = (investigatePoint - pos).normalized;
-        float dist = Vector2.Distance(pos, investigatePoint);
-        bool blocked = Physics2D.Raycast(pos, dir, dist, obstacleMask);
-
-        if (stuckTimer >= stuckTimeMax || blocked)
-        {
-            ToSearchShort(blocked ? "inspect blocked" : "inspect stall");
+            ToSearchShort("Inspect got stuck");
         }
     }
 
@@ -375,25 +360,37 @@ public class GaurdAI : MonoBehaviour
     {
         if (lastKnownPlayer == Vector2.zero)
         {
-            ToSearchShort("alert no last");
+            ToSearchShort("Alert no memory");
             return;
         }
 
-        MoveTowards(lastKnownPlayer, chaseSpeed * 0.9f);
+        MoveSmart(lastKnownPlayer, chaseSpeed * 0.9f);
 
         if (Vector2.Distance(transform.position, lastKnownPlayer) <= InspectArrive() * 2f)
         {
-            ToSearchShort("alert arrived");
+            ToSearchShort("Alert reached zone");
+        }
+
+        UpdateStuckTimer();
+        if (stuckTimer >= stuckTimeMax)
+        {
+            ToSearchShort("Alert got stuck");
         }
     }
 
     void DoAssist()
     {
-        MoveTowards(investigatePoint, chaseSpeed * 0.85f);
+        MoveSmart(investigatePoint, chaseSpeed * 0.85f);
 
         if (Vector2.Distance(transform.position, investigatePoint) <= InspectArrive() * 2f)
         {
-            ToSearchShort("assist arrived");
+            ToSearchShort("Assist reached zone");
+        }
+
+        UpdateStuckTimer();
+        if (stuckTimer >= stuckTimeMax)
+        {
+            ToSearchShort("Assist got stuck");
         }
     }
 
@@ -402,40 +399,38 @@ public class GaurdAI : MonoBehaviour
         if (Time.time >= inspectDeadline)
         {
             rb.linearVelocity = Vector2.zero;
-            Change(State.Patrol, "search timeout");
+            Change(State.Patrol, "Search timed out");
             return;
         }
 
-        if (rb.linearVelocity.magnitude < stuckSpeedEps)
+        if (searchTargets.Count == 0)
         {
-            stuckTimer += Time.deltaTime;
-        }
-        else
-        {
-            stuckTimer = 0f;
+            rb.linearVelocity = Vector2.zero;
+            Change(State.Patrol, "Search no targets");
+            return;
         }
 
-        if (stuckTimer >= stuckTimeMax)
+        if (searchTargetIndex >= searchTargets.Count)
         {
-            stuckTimer = 0f;
-            searchIndex = (searchIndex + 1) % 4;
+            rb.linearVelocity = Vector2.zero;
+            Change(State.Patrol, "Search finished path");
+            return;
         }
 
-        Vector2 dirOffset;
-        int idx = searchIndex % 4;
-        if (idx == 0) dirOffset = Vector2.up;
-        else if (idx == 1) dirOffset = Vector2.right;
-        else if (idx == 2) dirOffset = Vector2.down;
-        else dirOffset = Vector2.left;
-
-        Vector2 target = searchCenter + dirOffset * searchRadius;
-
-        MoveTowards(target, searchSpeed);
-        LogEvery("Search moving to " + target);
+        Vector2 target = searchTargets[searchTargetIndex];
+        MoveSmart(target, searchSpeed);
+        LogEvery("Search moving target");
 
         if (Vector2.Distance(transform.position, target) <= InspectArrive())
         {
-            searchIndex = (searchIndex + 1) % 4;
+            searchTargetIndex++;
+        }
+
+        UpdateStuckTimer();
+        if (stuckTimer >= stuckTimeMax)
+        {
+            searchTargetIndex++;
+            stuckTimer = 0f;
         }
     }
 
@@ -443,23 +438,31 @@ public class GaurdAI : MonoBehaviour
     {
         if (!player)
         {
-            ToSearchShort("chase no player");
+            ToSearchShort("Chase no player");
             return;
         }
 
-        MoveTowards(player.position, chaseSpeed);
+        MoveSmart(player.position, chaseSpeed);
 
         float dist = Vector2.Distance(transform.position, player.position);
         if (dist <= attackRange)
         {
-            Change(State.Attack, "enter attack");
+            Change(State.Attack, "Enter attack range");
+            return;
+        }
+
+        UpdateStuckTimer();
+        if (stuckTimer >= stuckTimeMax)
+        {
+            lastKnownPlayer = player.position;
+            ToSearchShort("Chase got stuck");
             return;
         }
 
         if (!HasLineOfSight())
         {
             lastKnownPlayer = player.position;
-            ToSearchShort("lost sight");
+            ToSearchShort("Lost line sight");
         }
     }
 
@@ -476,12 +479,12 @@ public class GaurdAI : MonoBehaviour
             if (td) td.OnCaught();
         }
 
-        Change(State.Chase, "attack done");
+        Change(State.Chase, "Attack finished now");
     }
 
     void ToSearchShort(string why)
     {
-        inspectDeadline = Time.time + 3.5f;
+        inspectDeadline = Time.time + searchTimeout;
 
         Vector2 center = investigatePoint != Vector2.zero
             ? investigatePoint
@@ -489,7 +492,10 @@ public class GaurdAI : MonoBehaviour
 
         searchCenterRaw = center;
         searchCenter = ResolveSearchCenter(center);
-        searchIndex = 0;
+
+        BuildSearchTargets();
+
+        searchTargetIndex = 0;
         stuckTimer = 0f;
 
         Change(State.Search, why);
@@ -509,11 +515,72 @@ public class GaurdAI : MonoBehaviour
         return hit.point - hit.normal * searchClearance;
     }
 
-    void MoveTowards(Vector2 target, float speed)
+    void BuildSearchTargets()
     {
-        Vector2 pos = transform.position;
-        Vector2 dir = (target - pos).normalized;
-        rb.linearVelocity = dir * speed;
+        searchTargets.Clear();
+        searchTargets.Add(searchCenter);
+
+        for (int ring = 1; ring <= searchRings; ring++)
+        {
+            float radius = searchRadiusStep * ring;
+            for (int i = 0; i < searchSamplesPerRing; i++)
+            {
+                float angle = (Mathf.PI * 2f * i) / searchSamplesPerRing;
+                Vector2 dir = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
+                Vector2 candidate = searchCenter + dir * radius;
+
+                if (IsSearchPointReachable(candidate))
+                {
+                    searchTargets.Add(candidate);
+                }
+            }
+        }
+    }
+
+    bool IsSearchPointReachable(Vector2 point)
+    {
+        Collider2D hitArea = Physics2D.OverlapCircle(point, agentRadius * 0.9f, obstacleMask);
+        if (hitArea) return false;
+
+        RaycastHit2D hitCenter = Physics2D.Linecast(searchCenter, point, obstacleMask);
+        if (hitCenter.collider != null) return false;
+
+        RaycastHit2D hitGuard = Physics2D.Linecast(transform.position, point, obstacleMask);
+        if (hitGuard.collider != null) return false;
+
+        return true;
+    }
+
+    void MoveSmart(Vector2 target, float speed)
+    {
+        Vector2 pos = rb.position;
+        Vector2 toTarget = target - pos;
+        float dist = toTarget.magnitude;
+
+        if (dist < 0.01f)
+        {
+            rb.linearVelocity = Vector2.zero;
+            return;
+        }
+
+        Vector2 dir = toTarget / dist;
+
+        float castRadius = agentRadius * 0.9f;
+        float castDist = Mathf.Min(dist, speed * Time.deltaTime * 2f) + castRadius;
+
+        RaycastHit2D hit = Physics2D.CircleCast(pos, castRadius, dir, castDist, obstacleMask);
+        if (hit.collider == null)
+        {
+            rb.linearVelocity = dir * speed;
+            return;
+        }
+
+        Vector2 normal = hit.normal;
+        Vector2 slideDir = new Vector2(-normal.y, normal.x);
+        if (Vector2.Dot(slideDir, dir) < 0f)
+            slideDir = -slideDir;
+
+        rb.linearVelocity = slideDir * speed;
     }
 
     bool HasLineOfSight()
@@ -538,13 +605,21 @@ public class GaurdAI : MonoBehaviour
         }
     }
 
+    void UpdateStuckTimer()
+    {
+        if (rb.linearVelocity.magnitude < stuckSpeedEps)
+            stuckTimer += Time.deltaTime;
+        else
+            stuckTimer = 0f;
+    }
+
     void OnCollisionStay2D(Collision2D col)
     {
         if (!attackOnContact) return;
         if (!col.collider.CompareTag("Player")) return;
         if (Time.time < nextAttack) return;
 
-        Change(State.Attack, "contact attack");
+        Change(State.Attack, "Contact attack hit");
     }
 
     void Change(State next, string why)
@@ -595,7 +670,10 @@ public class GaurdAI : MonoBehaviour
         Gizmos.color = Color.gray;
         Gizmos.DrawWireSphere(transform.position, ir);
 
-        Vector2 facing = (rb && rb.linearVelocity.sqrMagnitude > 0.01f) ? rb.linearVelocity.normalized : Vector2.right;
+        Vector2 facing = rb && rb.linearVelocity.sqrMagnitude > 0.01f
+            ? rb.linearVelocity.normalized
+            : Vector2.right;
+
         float half = 0.5f * fovDegrees * Mathf.Deg2Rad;
 
         Vector2 left = new Vector2(
@@ -615,5 +693,11 @@ public class GaurdAI : MonoBehaviour
 
         Gizmos.color = Color.green;
         Gizmos.DrawSphere(searchCenter, 0.06f);
+
+        Gizmos.color = Color.green;
+        foreach (var p in searchTargets)
+        {
+            Gizmos.DrawWireSphere(p, 0.12f);
+        }
     }
 }
